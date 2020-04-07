@@ -1,0 +1,168 @@
+---
+title: "ABS data notes"
+output: html_notebook
+---
+
+# Introduction
+
+This is just a notebook to demonstrate how to load and manipulate Census datasets in R.
+
+## Markdown notes
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+# Load libraries
+
+We are going to use the following:
+
+* [tidyverse](https://www.tidyverse.org/) - this is a package of packages including `dplyr` which is used for data manipulation. 
+* [sf](http://r-spatial.github.io/sf/) - this is the spatial features package. This makes it easy to work with spatial data using tidyverse syntax.
+* [janitor](https://garthtarr.github.io/meatR/janitor.html) - this package makes it easy to remove empty rows and columns as well as clean variable names.
+
+```{r}
+#### the first time you use a package you will need to install it.
+# install.packages("tidyverse")
+# install.packages("sf")
+# install.packages("janitor")
+
+# load the libraries
+library(tidyverse)
+library(sf)
+library(janitor)
+
+# if you want, you can load packages like pacman, which make it easier to load lots of packages.
+```
+
+Note: this (%>%) is a pipe and is used in the tidyverse syntax to join processes together. the shortcut is Ctrl+Shift+M
+
+# Load datasets
+```{r}
+# sa1 data
+sa1_shp_raw <- st_read("data_in/shp/SA1_2016_MV.shp") %>% 
+  clean_names()
+
+# languages spoken at home 
+lang_raw <- read_csv("data_in/SA1_2016_LANP.csv") %>% 
+  clean_names()
+
+# household composition - this one has extra rows on the top and bottom that needs to be deleted - this has been downloaded from tablebuilder
+hhcd_raw <- read_csv("data_in/SA1_2016_hhcd2.csv", skip = 9) %>% 
+  clean_names() %>% 
+  filter(!is.na(count)) %>% 
+  filter(hhcd_2_digit_level != "Not applicable") %>% 
+  select(-x5) # sometimes an extra column gets read in when the data is in this format from Tablebuilder
+
+# view them
+sa1_shp_raw
+lang_raw
+hhcd_raw
+```
+
+# Manipulate data
+## Languages spoken at home
+
+```{r}
+lang <- lang_raw %>% 
+  select(-counting) %>% # drop this column
+  rename(sa1 = sa1_ur) %>% # rename the column
+  filter(!lanp_4_digit_level %in% c("English", "Not stated")) %>% #filter out these
+  arrange(sa1, desc(count))  %>% # arrange by these columns
+  mutate(sa1 = factor(sa1)) %>% # converts the sa1 varialbe to factor (a type of character field) to match the shapefile
+  mutate(count = as.integer(count)) # convert to integer
+lang # just to have the output below
+```
+
+```{r}
+# pivot the data wider
+lang_wide <- lang %>% 
+  pivot_wider(names_from = "lanp_4_digit_level", values_from = "count") %>% 
+  arrange(sa1) %>% 
+  replace(is.na(.), 0L) # replace the empty cells with 0 as an integer
+write_csv(lang_wide, "data_out/lang_wide_2016.csv") # export to csv
+lang_wide
+```
+
+
+
+```{r}
+# top languages
+lang_1 <- lang %>% 
+  group_by(sa1) %>% 
+  slice(1) %>% # takes the top language by the group
+  rename(lang1 = lanp_4_digit_level, lang1_count = count)
+
+lang_2 <- lang %>% 
+  group_by(sa1) %>% 
+  slice(2) %>% 
+  rename(lang2 = lanp_4_digit_level, lang2_count = count)
+
+lang_3 <- lang %>% 
+  group_by(sa1) %>% 
+  slice(3) %>% 
+  rename(lang3 = lanp_4_digit_level, lang3_count = count)
+
+lang_top3 <- left_join(lang_1, lang_2, by = "sa1")  %>% # join everything together
+  left_join(lang_3, by = "sa1")
+write_csv(lang_top3, "data_out/lang_top3_2016.csv")
+
+lang_top3
+```
+
+## Lone person households
+
+```{r}
+# select the columns that I want
+hhcd_ <- hhcd_raw %>% 
+  select(sa1 = sa1, hhcd_2_digit_level, count) 
+```
+
+```{r}
+# caluculate the lone person households
+lone_pers_hh <- hhcd_raw %>% 
+  group_by(sa1) %>% # group by sa1
+  select(-counting) %>% # drops this column
+  mutate(pct = round(count/sum(count)*100, 1)) %>% #calculate a percentage rounded to one decimal place - this is for all groups
+  filter(hhcd_2_digit_level == "Lone person household") %>% # we only want lone person households
+  filter(!is.na(pct)) %>% # get rid of the ones where there isn't a value
+  filter(sa1 != "Total") %>% # there might have been totals in the original input file
+  ungroup() %>% # need to ungroup first as sa1 is used as the grouping variable so can't be mutated in the next step
+  mutate(sa1 = factor(sa1)) # converts the sa1 varialbe to factor (a type of character field) to match the shapefile
+write_csv(lone_pers_hh, "data_out/lone_pers_hh_sa1_2016.csv")
+
+lone_pers_hh
+```
+
+# Spatial joins
+
+```{r}
+sa1_shp <- sa1_shp_raw %>% 
+  select(sa1 = sa1_7digit) # just select sa1 and rename it. it will also keep the geometry column too unless we drop it
+
+sa1_shp
+```
+
+## Join to languages spoken at home
+```{r}
+sa1_lang_shp <- sa1_shp %>% 
+  left_join(lang_1, by = "sa1")
+st_write(sa1_lang_shp, "data_out/shp/sa1_lang.shp", delete_layer = TRUE) # output - the delete layer just overwrites anything
+
+sa1_lang_shp
+
+plot(sa1_lang_shp) # this is just a very quick plot for the demo. there are plenty of ways to make better maps using other packages such tmap, mapview or cartography
+```
+
+## Join to lone person households
+```{r}
+sa1_lone_pers_hh_shp <- sa1_shp %>% 
+  left_join(lone_pers_hh, by = "sa1")
+st_write(sa1_lone_pers_hh_shp, "data_out/shp/sa1_lone_pers_hh.shp", delete_layer = TRUE) # output - the delete layer just overwrites anything
+
+sa1_lone_pers_hh_shp
+
+plot(sa1_lone_pers_hh_shp) # this is just a very quick plot for the demo. there are plenty of ways to make better maps using other packages such tmap, mapview or cartography
+```
