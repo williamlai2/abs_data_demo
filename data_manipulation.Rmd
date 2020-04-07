@@ -158,6 +158,7 @@ plot(sa1_lang_shp) # this is just a very quick plot for the demo. there are plen
 
 ## Join to lone person households
 ```{r}
+# join then export - note that functions using sf start with 'st'
 sa1_lone_pers_hh_shp <- sa1_shp %>% 
   left_join(lone_pers_hh, by = "sa1")
 st_write(sa1_lone_pers_hh_shp, "data_out/shp/sa1_lone_pers_hh.shp", delete_layer = TRUE) # output - the delete layer just overwrites anything
