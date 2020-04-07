@@ -45,14 +45,14 @@ Note: this (%>%) is a pipe and is used in the tidyverse syntax to join processes
 sa1_shp_raw <- st_read("data_in/shp/SA1_2016_MV.shp") %>% 
   clean_names()
 
-# languages spoken at home 
+# languages spoken at home  - this file has been cleaned up previously
 lang_raw <- read_csv("data_in/SA1_2016_LANP.csv") %>% 
   clean_names()
 
 # household composition - this one has extra rows on the top and bottom that needs to be deleted - this has been downloaded from tablebuilder
-hhcd_raw <- read_csv("data_in/SA1_2016_hhcd2.csv", skip = 9) %>% 
+hhcd_raw <- read_csv("data_in/SA1_2016_hhcd2.csv", skip = 9) %>% # skip the top nine rows
   clean_names() %>% 
-  filter(!is.na(count)) %>% 
+  filter(!is.na(count)) %>% # this gets rid of the bottom rows
   filter(hhcd_2_digit_level != "Not applicable") %>% 
   select(-x5) # sometimes an extra column gets read in when the data is in this format from Tablebuilder
 
